@@ -1,0 +1,9 @@
+PySide6>=6.5.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+matplotlib>=3.7.0
+trimesh>=4.0.0
+pycollada>=0.8
+# 可选：安装后可加载真实YOLO权重；未安装时自动使用模拟检测模式
+ultralytics>=8.0.0
