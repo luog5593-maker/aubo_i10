@@ -43,7 +43,7 @@ class MainWindow(QMainWindow):
         detector=VisionDetector(self.image_panel.weight.text(), self.image_panel.conf.value()); dets=detector.detect(self.current_image)
         for d in dets: d.world=self.transformer.pixel_to_world(*d.center,self.current_image.shape)
         self.detections=dets; img=detector.draw_results(self.current_image,dets); self.image_panel.set_results(img,dets)
-        target=next((d for d in dets if d.class_name in ('grasp_point','clamp')), None); self.last_target=target.world if target else None; self.view.target=self.last_target; self.refresh()
+        target=next((d for d in dets if d.class_name in ('grasp_point','clamp')), None); self.last_target=target.world if target is not None else None; self.view.target=self.last_target; self.refresh()
         self.logger.log('目标检测',f'{detector.mode}完成，目标数量{len(dets)}', result=[d.to_dict() for d in dets])
     def animate_to(self,target,gripper=False):
         angles,msg=self.robot.inverse(target)
@@ -53,7 +53,7 @@ class MainWindow(QMainWindow):
         return True
     def movej_home(self): self.animate_to((350,0,260)); self.logger.log('MoveJ','完成关节空间插值运动')
     def movel_target(self):
-        if not self.last_target: QMessageBox.warning(self,'提示','请先完成检测并获得目标点'); return
+        if self.last_target is None: QMessageBox.warning(self,'提示','请先完成检测并获得目标点'); return
         _,pose=self.robot.forward()
         for p in self.planner.movel_targets((pose.x,pose.y,pose.z),self.last_target,20):
             if not self.animate_to(p): return

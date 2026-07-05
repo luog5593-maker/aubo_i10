@@ -74,7 +74,7 @@ class RobotModelLoader:
 
     def _parse_aubo_urdf(self, aubo_root: Optional[Path]):
         urdf = aubo_root / "aubo_i10_gazebo_roscontrol.urdf" if aubo_root else None
-        if not urdf or not urdf.exists():
+        if urdf is None or not urdf.exists():
             return self._default_joints(), {}
         try:
             root = ET.parse(urdf).getroot(); mesh_map = {}; joints = []
@@ -90,7 +90,7 @@ class RobotModelLoader:
                 child = joint.find("child").attrib.get("link", "")
                 origin = joint.find("origin"); axis = joint.find("axis"); limit = joint.find("limit")
                 joints.append(JointInfo(name,parent,child,self._parse_vec(origin.attrib.get("xyz") if origin is not None else None),self._parse_vec(origin.attrib.get("rpy") if origin is not None else None),self._parse_vec(axis.attrib.get("xyz") if axis is not None else None,(0,0,1)),float(limit.attrib.get("lower",-math.pi)) if limit is not None else -math.pi,float(limit.attrib.get("upper",math.pi)) if limit is not None else math.pi))
-            return (joints or self._default_joints()), mesh_map
+            return (joints if len(joints) > 0 else self._default_joints()), mesh_map
         except Exception:
             return self._default_joints(), {}
 
@@ -114,7 +114,7 @@ class RobotModelLoader:
         for name in AUBO_LINKS:
             candidates = []
             if mesh_map.get(name): candidates.append(mesh_map[name])
-            if aubo_root: candidates += [aubo_root/"meshes"/f"{name}.DAE", aubo_root/"meshes"/f"{name}.STL"]
+            if aubo_root is not None: candidates += [aubo_root/"meshes"/f"{name}.DAE", aubo_root/"meshes"/f"{name}.STL"]
             links[name] = self._load_mesh_or_fallback(name, candidates, sizes.get(name), messages, "link")
         return links
 
@@ -122,16 +122,18 @@ class RobotModelLoader:
         sizes={"pgc_300_60":(.12,.08,.05),"pgc_300_60_base":(.10,.07,.04),"pgc_300_60_left_finger":(.025,.025,.10),"pgc_300_60_right_finger":(.025,.025,.10)}
         result={}
         for name,size in sizes.items():
-            candidates=[gripper_root/"meshes"/f"{name}.stl"] if gripper_root else []
+            candidates=[gripper_root/"meshes"/f"{name}.stl"] if gripper_root is not None else []
             result[name]=self._load_mesh_or_fallback(name,candidates,size,messages,"gripper")
         return result
 
     def _load_mesh_or_fallback(self, name, candidates, size, messages, kind):
         for path in candidates:
-            if path and path.exists():
+            if path is not None and path.exists():
                 loaded = self._try_load_mesh(path)
-                if loaded:
-                    v,f = loaded; return LinkInfo(name,path,True,"",v,f,size)
+                if loaded is not None:
+                    v,f = loaded
+                    if v is not None and len(v) > 0 and f is not None and len(f) > 0:
+                        return LinkInfo(name,path,True,"",v,f,size)
         messages.append(f"{name} mesh 缺失或无法加载，已使用程序化模型替代")
         return LinkInfo(name,None,False,"fallback",None,None,size)
 
@@ -142,7 +144,11 @@ class RobotModelLoader:
             if mesh.is_empty: return None
             vertices = np.asarray(mesh.vertices, dtype=float)
             faces = np.asarray(mesh.faces, dtype=int)
-            scale = 0.001 if max(mesh.extents) > 10 else 1.0
+            if vertices.size == 0 or faces.size == 0:
+                return None
+            extents = np.asarray(mesh.extents, dtype=float)
+            max_extent = float(np.max(extents)) if extents.size > 0 else 0.0
+            scale = 0.001 if max_extent > 10 else 1.0
             return vertices * scale, faces
         except Exception:
             return None
