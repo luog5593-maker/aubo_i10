@@ -1,0 +1,13 @@
+{
+  "joint_limits": [[-170, 170], [-120, 120], [-150, 150], [-180, 180], [-120, 120], [-360, 360]],
+  "home_angles": [0, -35, 70, 0, 55, 0],
+  "link_lengths": [120, 220, 220, 120, 80, 60],
+  "workspace_radius": 620,
+  "workspace_z": [0, 620],
+  "place_point": [260, -260, 90],
+  "pre_grasp_height": 120,
+  "lift_height": 160,
+  "tool_offset_xyz": [0, 0, 0.08],
+  "tool_offset_rpy": [0, 0, 0],
+  "finger_travel": 0.03
+}
