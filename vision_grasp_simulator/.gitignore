@@ -8,6 +8,10 @@ __pycache__/
 *.onnx
 *.zip
 *.exe
+*.DAE
+*.dae
+*.STL
+*.stl
 outputs/logs/*
 outputs/images/*
 outputs/trajectories/*

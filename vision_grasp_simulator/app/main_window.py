@@ -1,5 +1,5 @@
-from PySide6.QtWidgets import QMainWindow,QWidget,QHBoxLayout,QVBoxLayout,QSplitter,QMessageBox,QFileDialog
-from PySide6.QtCore import Qt,QTimer
+from PySide6.QtWidgets import QMainWindow,QWidget,QVBoxLayout,QSplitter,QMessageBox
+from PySide6.QtCore import Qt
 from app.widgets.image_panel import ImagePanel
 from app.widgets.robot_view_panel import RobotViewPanel
 from app.widgets.control_panel import ControlPanel
@@ -10,23 +10,32 @@ from core.robot_kinematics import RobotKinematics
 from core.trajectory_planner import TrajectoryPlanner
 from core.grasp_simulator import GraspSimulator
 from core.safety_checker import SafetyChecker
+from core.robot_model_loader import RobotModelLoader
 from utils.file_manager import load_json, save_json, save_csv, timestamp_name
 from utils.logger import AppLogger
+from pathlib import Path
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__(); self.setWindowTitle('基于YOLO的机械臂视觉识别与抓取仿真系统 V1.0'); self.resize(1500,900)
-        self.logger=AppLogger(); self.robot=RobotKinematics(load_json('config/robot_config.json')); vc=load_json('config/vision_config.json'); sc=load_json('config/safety_config.json')
-        self.transformer=CoordinateTransformer(vc['pixel_to_mm'],vc['origin_offset'],vc['default_grasp_height']); self.planner=TrajectoryPlanner(); self.grasp=GraspSimulator(load_json('config/robot_config.json')); self.safety=SafetyChecker(sc['min_confidence'])
-        self.image_panel=ImagePanel(); self.view=RobotViewPanel(); self.ctrl=ControlPanel(); self.log=LogPanel(); self.logger.add_listener(self.log.append)
+        self.logger=AppLogger(); robot_cfg=load_json('config/robot_config.json'); self.robot=RobotKinematics(robot_cfg); vc=load_json('config/vision_config.json'); sc=load_json('config/safety_config.json')
+        self.project_root=Path(__file__).resolve().parents[1]; self.visual_model=RobotModelLoader(self.project_root).load()
+        self.transformer=CoordinateTransformer(vc['pixel_to_mm'],vc['origin_offset'],vc['default_grasp_height']); self.planner=TrajectoryPlanner(); self.grasp=GraspSimulator(robot_cfg); self.safety=SafetyChecker(sc['min_confidence'])
+        self.image_panel=ImagePanel(); self.view=RobotViewPanel(); self.view.set_model(self.visual_model); self.view.set_gripper_config(robot_cfg.get('tool_offset_xyz',[0,0,0.08]), robot_cfg.get('finger_travel',0.03)); self.ctrl=ControlPanel(); self.log=LogPanel(); self.logger.add_listener(self.log.append)
         top=QSplitter(Qt.Horizontal); top.addWidget(self.image_panel); top.addWidget(self.view); top.addWidget(self.ctrl); top.setSizes([420,650,360])
         central=QWidget(); lay=QVBoxLayout(central); lay.addWidget(top,4); lay.addWidget(self.log,1); self.setCentralWidget(central)
         self.detections=[]; self.current_image=None; self.last_target=None; self.trajectory=[]
         self.image_panel.detect_requested.connect(self.detect); self.image_panel.image_changed.connect(lambda img:setattr(self,'current_image',img))
         self.ctrl.joints_changed.connect(self.set_joints); self.ctrl.reset.connect(self.reset); self.ctrl.exit_app.connect(self.close); self.ctrl.auto_grasp.connect(self.auto_grasp); self.ctrl.movej.connect(self.movej_home); self.ctrl.movel.connect(self.movel_target); self.ctrl.export_log.connect(self.export_logs); self.ctrl.jog.connect(self.jog)
-        self.reset(); self.logger.log('启动','软件启动成功，未连接真实机械臂、ROS或深度相机。')
+        self._apply_urdf_joint_limits(); self.reset(); self.logger.log('启动','软件启动成功，未连接真实机械臂、ROS或深度相机。')
+        for msg in self.visual_model.messages: self.logger.log('模型加载', msg)
+    def _apply_urdf_joint_limits(self):
+        import math
+        if getattr(self, 'visual_model', None) and self.visual_model.joints:
+            limits=[(math.degrees(j.lower), math.degrees(j.upper)) for j in self.visual_model.joints[:6]]
+            self.ctrl.set_joint_limits(limits); self.robot.limits=limits
     def refresh(self):
-        pts,pose=self.robot.forward(); self.ctrl.set_joints(self.robot.joint_angles); self.ctrl.set_pose(pose); self.view.draw(pts)
+        pts,pose=self.robot.forward(); self.ctrl.set_joints(self.robot.joint_angles); self.ctrl.set_pose(pose); self.view.draw(pts, self.robot.joint_angles)
     def set_joints(self,angles): self.robot.joint_angles=self.robot.clamp(angles); self.refresh()
     def reset(self): self.robot.reset(); self.view.path=[]; self.view.gripper=False; self.refresh(); self.logger.log('复位','机械臂已回到初始位姿')
     def detect(self):
@@ -59,7 +68,8 @@ class MainWindow(QMainWindow):
         if not ok: QMessageBox.warning(self,'安全提示',msg); self.logger.log('安全判断',msg); return
         self.view.target=target_det.world; self.view.pre=(target_det.world[0],target_det.world[1],target_det.world[2]+120); self.view.path=[]
         for text,point,closed in self.grasp.sequence(target_det.world):
-            self.logger.log('自动抓取',text, target=point, gripper=closed)
+            prompt = {'运动到预抓取点':'正在移动到预抓取点','下降到抓取点':'正在下降到抓取点','虚拟夹爪闭合':'电爪闭合','抬升目标':'抓取完成，正在抬升','移动到放置点上方':'正在移动到放置点','虚拟夹爪打开':'电爪打开','返回初始位姿':'自动抓取流程结束'}.get(text, text)
+            self.logger.log('自动抓取',prompt, target=point, gripper=closed)
             if point is None: self.reset(); continue
             self.view.path.append(point)
             if not self.animate_to(point,closed): return

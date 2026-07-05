@@ -16,6 +16,9 @@ class ControlPanel(QWidget):
         for name,sig in [('MoveJ',self.movej),('MoveL',self.movel),('自动抓取',self.auto_grasp),('复位',self.reset),('导出日志',self.export_log),('Exit',self.exit_app)]:
             b=QPushButton(name); b.clicked.connect(sig.emit); lay.addWidget(b)
     def _emit(self): self.joints_changed.emit([s.value() for s in self.sliders])
+    def set_joint_limits(self, limits_deg):
+        for s,(lo,hi) in zip(self.sliders,limits_deg):
+            s.setRange(int(round(lo)), int(round(hi)))
     def set_joints(self,angles):
         for s,e,a in zip(self.sliders,self.edits,angles): s.blockSignals(True); s.setValue(int(a)); s.blockSignals(False); e.setText(f'{a:.1f}')
     def set_pose(self,pose):
